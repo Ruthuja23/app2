@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Subway Surfers Clone</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            background: #111;
+            color: #fff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        #game-container {
+            position: relative;
+            width: 400px;
+            height: 600px;
+            box-shadow: 0 0 20px rgba(255, 165, 0, 0.5);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        canvas {
+            background: linear-gradient(to bottom, #87CEEB 0%, #87CEEB 50%, #555 50%, #333 100%);
+            display: block;
+        }
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        .hud-element {
+            font-size: 24px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            color: #FFD700;
+        }
+        #game-over-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+        #game-over-screen.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        h1 {
+            color: #FF4500;
+            font-size: 40px;
+            margin-bottom: 10px;
+            text-shadow: 0 0 10px rgba(255, 69, 0, 0.5);
+        }
+        p {
+            font-size: 18px;
+            margin-bottom: 20px;
+        }
+        button {
+            background: #FF8C00;
+            border: none;
+            padding: 12px 30px;
+            font-size: 18px;
+            font-weight: bold;
+            color: white;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: transform 0.1s, background 0.2s;
+        }
+        button:hover {
+            background: #FF4500;
+            transform: scale(1.05);
+        }
+        #controls-hint {
+            margin-top: 15px;
+            font-size: 14px;
+            color: #aaa;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <canvas id="gameCanvas" width="400" height="600"></canvas>
+        
+        <div id="ui-layer">
+            <div style="display: flex; justify-content: space-between;">
+                <div id="score-display" class="hud-element">SCORE: 0</div>
+                <div id="multiplier-display" class="hud-element" style="color: #00FFCC;">x1</div>
+            </div>
+            <div></div> <!-- Spacer -->
+        </div>
+
+        <div id="game-over-screen">
+            <h1>CRASHED!</h1>
+            <p id="final-score">Your Score: 0</p>
+            <button id="restart-btn">RUN AGAIN</button>
+        </div>
+    </div>
+
+    <div id="controls-hint">
+        Use <b>Left / Right Arrows</b> or <b>A / D</b> to Switch Lanes.<br>
+        Press <b>SpaceBAR</b> or <b>Up Arrow / W</b> to Jump.
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreDisplay = document.getElementById('score-display');
+        const multiplierDisplay = document.getElementById('multiplier-display');
+        const gameOverScreen = document.getElementById('game-over-screen');
+        const finalScore = document.getElementById('final-score');
+        const restartBtn = document.getElementById('restart-btn');
+
+        // Game Configuration
+        const LANES = [-1, 0, 1]; // Left, Center, Right
+        const LANE_WIDTH_BASE = 90;
+        const HORIZON_Y = 280; // Pseudo-3D horizon point
+        
+        let gameState = {
+            running: true,
+            score: 0,
+            distance: 0,
+            speed: 5,
+            maxSpeed: 15,
+            acceleration: 0.001
+        };
+
+        // Player Setup
+        class Surfer {
+            constructor() {
+                this.targetLane = 0; // Start in middle lane
+                this.currentX = 0;   // Interpolated X pos for smooth sliding
+                this.laneValue = 0;
+                this.yOffset = 0;    // For jumping height
+                this.jumpVelocity = 0;
+                this.isJumping = false;
+                this.gravity = 0.6;
+                this.width = 30;
+                this.height = 50;
+            }
+
+            update() {
+                // Smooth lane switching physics
+                let targetX = this.targetLane * LANE_WIDTH_BASE;
+                this.currentX += (targetX - this.currentX) * 0.25;
+
+                // Jump physics
+                if (this.isJumping) {
+                    this.yOffset += this.jumpVelocity;
+                    this.jumpVelocity -= this.gravity;
+                    if (this.yOffset <= 0) {
+                        this.yOffset = 0;
+                        this.jumpVelocity = 0;
+                        this.isJumping = false;
+                    }
+                }
+            }
+
+            jump() {
+                if (!this.isJumping) {
+                    this.jumpVelocity = 10;
+                    this.isJumping = true;
+                }
+            }
+
+            moveLane(dir) {
+                let nextLane = this.targetLane + dir;
+                if (nextLane >= -1 && nextLane <= 1) {
+                    this.targetLane = nextLane;
+                }
+            }
+
+            draw() {
+                // Pseudo-3D calculations for placement near bottom
+                let renderY = canvas.height - 80 - this.yOffset;
+                let renderX = (canvas.width / 2) + this.currentX - (this.width / 2);
+
+                // Shadow
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+                ctx.beginPath();
+                ctx.ellipse((canvas.width / 2) + this.currentX, canvas.height - 75, this.width/1.2, 8, 0, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Draw Surfer Character Body
+                ctx.fillStyle = '#FF4500'; // Vibrant jacket
+                ctx.fillRect(renderX, renderY, this.width, this.height);
+
+                // Head/Cap
+                ctx.fillStyle = '#FFD700';
+                ctx.fillRect(renderX + 5, renderY - 15, this.width - 10, 15);
+                ctx.fillStyle = '#FFF'; // Cap brim
+                ctx.fillRect(renderX + (this.targetLane >= 0 ? 15 : 0), renderY - 15, 15, 4);
+
+                // Jeans
+                ctx.fillStyle = '#0000FF';
+                ctx.fillRect(renderX + 2, renderY + this.height, this.width - 4, 10);
+            }
+        }
+
+        // Obstacle Setup (Trains and Barriers)
+        class Obstacle {
+            constructor() {
+                this.lane = LANES[Math.floor(Math.random() * LANES.length)];
+                this.z = 0; // Distance tracker from horizon (0 to 1)
+                this.type = Math.random() > 0.4 ? 'train' : 'barrier';
+                this.color = this.type === 'train' ? '#333399' : '#D2691E';
+                this.passed = false;
+                
+                // Varied properties based on type
+                this.heightFactor = this.type === 'train' ? 1.8 : 0.6;
+            }
+
+            update(speed) {
+                this.z += (speed * 0.0015); // Dynamic scale speed
+            }
+
+            draw() {
+                if (this.z <= 0 || this.z > 1.1) return;
+
+                // Perspective scaling calculations
+                let sizeScale = this.z; 
+                let currentLaneWidth = LANE_WIDTH_BASE * sizeScale;
+                
+                let horizonX = canvas.width / 2;
+                let targetX = horizonX + (this.lane * currentLaneWidth);
+                let targetY = HORIZON_Y + (canvas.height - HORIZON_Y) * this.z;
+
+                let w = 45 * sizeScale;
+                let h = (this.type === 'train' ? 90 : 30) * sizeScale;
+
+                let renderX = targetX - (w / 2);
+                let renderY = targetY - h;
+
+                // Object boundary rendering
+                ctx.fillStyle = this.color;
+                ctx.fillRect(renderX, renderY, w, h);
+
+                // Details (e.g., Train windows or stripe markings)
+                if (this.type === 'train') {
+                    ctx.fillStyle = '#00FFFF';
+                    ctx.fillRect(renderX + (w*0.2), renderY + (h*0.1), w*0.6, h*0.2);
+                    ctx.fillStyle = '#FFCC00'; // Headlights
+                    ctx.fillRect(renderX + (w*0.1), renderY + (h*0.7), w*0.2, h*0.1);
+                    ctx.fillRect(renderX + (w*0.7), renderY + (h*0.7), w*0.2, h*0.1);
+                } else {
+                    // Barrier warning stripes
+                    ctx.fillStyle = '#000';
+                    ctx.fillRect(renderX, renderY + (h*0.3), w, h*0.3);
+                }
+            }
+
+            checkCollision(player) {
+                if (this.z > 0.85 && this.z < 1.0) { // When matching the player's y-depth zone
+                    if (this.lane === player.targetLane) {
+                        if (this.type === 'barrier' && player.yOffset > 25) {
+                            return false; // Jumped cleanly over hurdle barrier
+                        }
+                        return true; // Whack!
+                    }
