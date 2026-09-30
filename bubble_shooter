@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bubble Shooter Game</title>
+    <style>
+        body {
+            background-color: #222;
+            color: white;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
+        #game-container {
+            position: relative;
+        }
+        canvas {
+            background-color: #111;
+            border: 4px solid #444;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+        #score-board {
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="score-board">Score: <span id="score">0</span></div>
+    <div id="game-container">
+        <canvas id="gameCanvas" width="480" height="600"></canvas>
+    </div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+
+// Game configurations
+const BUBBLE_RADIUS = 20;
+const ROWS = 10;
+const COLS = 12;
+const COLORS = ['#ff3333', '#33ff33', '#3333ff', '#ffff33', '#ff33ff'];
+
+let score = 0;
+let grid = [];
+let currentBubble = null;
+let mousePos = { x: canvas.width / 2, y: canvas.height };
+
+// Initialize the grid layout
+function initGrid() {
+    for (let r = 0; r < ROWS; r++) {
+        grid[r] = [];
+        for (let c = 0; c < COLS; c++) {
+            // Fill the top 4 rows with random colored bubbles to start
+            if (r < 4) {
+                grid[r][c] = COLORS[Math.floor(Math.random() * COLORS.length)];
+            } else {
+                grid[r][c] = null;
+            }
+        }
+    }
+}
+
+// Generate coordinate position for a bubble grid slot
+function getBubbleCoords(r, c) {
+    let x = c * BUBBLE_RADIUS * 2 + BUBBLE_RADIUS;
+    let y = r * BUBBLE_RADIUS * 2 + BUBBLE_RADIUS;
+    // Add offset for alternating hex-grid illusion rows
+    if (r % 2 === 1) {
+        x += BUBBLE_RADIUS;
+    }
+    return { x, y };
+}
+
+// Create a new bubble at the launcher position
+function createNewLauncherBubble() {
+    currentBubble = {
+        x: canvas.width / 2,
+        y: canvas.height - 40,
+        color: COLORS[Math.floor(Math.random() * COLORS.length)],
+        dx: 0,
+        dy: 0,
+        isShooting: false
+    };
+}
+
+// Draw a bubble on the canvas
+function drawBubble(x, y, color) {
+    ctx.beginPath();
+    ctx.arc(x, y, BUBBLE_RADIUS - 2, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    
+    // Specular highlight for a glossy bubble look
+    ctx.beginPath();
+    ctx.arc(x - BUBBLE_RADIUS/3, y - BUBBLE_RADIUS/3, BUBBLE_RADIUS/5, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.fill();
+    ctx.closePath();
+}
+
+// Game rendering loop
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // 1. Draw static grid bubbles
+    for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+            if (grid[r][c]) {
+                let coords = getBubbleCoords(r, c);
+                drawBubble(coords.x, coords.y, grid[r][c]);
+            }
+        }
+    }
+
+    // 2. Draw aiming guide line
+    if (!currentBubble.isShooting) {
+        ctx.beginPath();
+        ctx.moveTo(canvas.width / 2, canvas.height - 40);
+        ctx.lineTo(mousePos.x, mousePos.y);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+        ctx.lineWidth = 3;
+        ctx.setLineDash([5, 5]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+
+    // 3. Draw active launcher bubble
+    drawBubble(currentBubble.x, currentBubble.y, currentBubble.color);
+}
+
+// Update game physics and movements
+function update() {
+    if (currentBubble.isShooting) {
+        currentBubble.x += currentBubble.dx;
+        currentBubble.y += currentBubble.dy;
+
+        // Wall collisions (bounce left/right walls)
+        if (currentBubble.x - BUBBLE_RADIUS <= 0 || currentBubble.x + BUBBLE_RADIUS >= canvas.width) {
+            currentBubble.dx *= -1;
+        }
+
+        // Roof ceiling collision or bubble collision trigger
+        if (currentBubble.y - BUBBLE_RADIUS <= 0 || checkBubbleCollisions()) {
+            snapBubbleToGrid();
+        }
+    }
+}
+
+// Detect collision with existing grid bubbles
+function checkBubbleCollisions() {
+    for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+            if (grid[r][c]) {
+                let coords = getBubbleCoords(r, c);
+                let dist = Math.hypot(currentBubble.x - coords.x, currentBubble.y - coords.y);
+                if (dist < BUBBLE_RADIUS * 2 - 5) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+// Snaps a moving bubble into the closest empty grid slot
+function snapBubbleToGrid() {
+    let closestRow = 0;
+    let closestCol = 0;
+    let minDist = Infinity;
+
+    for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+            if (!grid[r][c]) {
+                let coords = getBubbleCoords(r, c);
+                let dist = Math.hypot(currentBubble.x - coords.x, currentBubble.y - coords.y);
+                if (dist < minDist) {
+                    minDist = dist;
+                    closestRow = r;
+                    closestCol = c;
+                }
+            }
+        }
+    }
+
+    // Assign the bubble to the grid slot
+    grid[closestRow][closestCol] = currentBubble.color;
+
+    // Check matches and process pops
+    let matches = [];
+    findMatches(closestRow, closestCol, currentBubble.color, matches);
+
+    if (matches.length >= 3) {
+        matches.forEach(pos => {
+            grid[pos.r][pos.c] = null;
+        });
+        score += matches.length * 10;
+        scoreEl.innerText = score;
+        dropFloatingBubbles();
+    }
+
+    // Check game over state (bubbles reaching the launcher zone)
+    if (closestRow >= ROWS - 2) {
+        alert("Game Over! Final Score: " + score);
+        initGrid();
+        score = 0;
+        scoreEl.innerText = score;
+    }
+
+    createNewLauncherBubble();
+}
+
+// Flood-fill search algorithm to detect matching color groups
+function findMatches(r, c, color, matches) {
+    if (r < 0 || r >= ROWS || c < 0 || c >= COLS || !grid[r][c] || grid[r][c] !== color) return;
+    
+    // Check if slot already recorded
+    if (matches.some(m => m.r === r && m.c === c)) return;
+
+    matches.push({r, c});
+
+    // Define neighbor step adjustments depending on even vs odd rows
+    let neighbors = [
+        {r: r, c: c - 1}, {r: r, c: c + 1},
+        {r: r - 1, c: c}, {r: r + 1, c: c}
+    ];
+    
+    let rowOffset = (r % 2 === 1) ? 1 : -1;
+    neighbors.push({r: r - 1, c: c + rowOffset});
+    neighbors.push({r: r + 1, c: c + rowOffset});
+
+    neighbors.forEach(n => findMatches(n.r, n.c, color, matches));
+}
+
+// Optional drop floating logic for orphaned clusters
+function dropFloatingBubbles() {
+    // Basic structural checks can be added here to remove bubbles hanging without top support strings.
+}
+
+// Tracking Mouse Movement
+canvas.addEventListener('mousemove', (e) => {
+    let rect = canvas.getBoundingClientRect();
+    mousePos.x = e.clientX - rect.left;
+    mousePos.y = e.clientY - rect.top;
+});
+
+// Launch on Click
+canvas.addEventListener('click', () => {
+    if (currentBubble.isShooting) return;
+
+    let angle = Math.atan2(mousePos.y - currentBubble.y, mousePos.x - currentBubble.x);
+    const SPEED = 8;
+    currentBubble.dx = Math.cos(angle) * SPEED;
+    currentBubble.dy = Math.sin(angle) * SPEED;
+    currentBubble.isShooting = true;
+});
+
+// Primary Loop Engine
+function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+}
+
+// Kickstart game environment
+initGrid();
+createNewLauncherBubble();
+loop();
+</script>
+
+</body>
+</html>
