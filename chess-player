@@ -1,0 +1,54 @@
+import chess
+
+def play_chess():
+    # Initialize the board with the standard starting position
+    board = chess.Board()
+    
+    print("Welcome to Python Chess!")
+    print("Enter your moves in UCI format (e.g., e2e4, g1f3).")
+    print("Type 'quit' to exit the game.\n")
+
+    while not board.is_game_over():
+        # Display the current board state in the console
+        print(board)
+        print("-" * 20)
+        
+        # Display whose turn it is
+        turn = "White" if board.turn == chess.WHITE else "Black"
+        user_input = input(f"{turn}'s move: ").strip()
+        
+        if user_input.lower() == 'quit':
+            print("Game abandoned.")
+            return
+
+        try:
+            # Parse the input move (e.g., "e2e4")
+            move = chess.Move.from_uci(user_input)
+            
+            # Check if the move is legal
+            if move in board.legal_moves:
+                board.push(move)  # Execute the move
+            else:
+                print("\n❌ Illegal move! Try again.\n")
+                
+        except ValueError:
+            print("\n❌ Invalid format! Please use UCI format like 'e2e4'.\n")
+
+    # Game over handling
+    print("\nGame Over!")
+    print(board)
+    print("-" * 20)
+    
+    # Determine the result
+    if board.is_checkmate():
+        winner = "Black" if board.turn == chess.WHITE else "White"
+        print(f"🎉 Checkmate! {winner} wins!")
+    elif board.is_stalemate():
+        print("🤝 Draw by Stalemate!")
+    elif board.is_insufficient_material():
+        print("🤝 Draw by Insufficient Material!")
+    else:
+        print("🤝 Draw!")
+
+if __name__ == "__main__":
+    play_chess()
